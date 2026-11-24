@@ -1,7 +1,10 @@
+import re
 from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from .training_domain import ROLL_CODE_PATTERN
 
 
 class Role(StrEnum):
@@ -25,6 +28,9 @@ class Machine(StrEnum):
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=300)]
 Code = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
+ROLL_CODE_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+RollCode = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64,
+                                            pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
 Qty = Annotated[int, Field(strict=True, ge=1, le=2_000_000)]
 Percent = Annotated[int, Field(strict=True, ge=0, le=100)]
 
@@ -102,3 +108,31 @@ class Verification(MeasureInput):
 
 CHANNELS = ('wrinkle_pct', 'offset_mm', 'delta_e', 'seal_gap_mm', 'gloss_cv')
 VERIFICATION_LIMITS = dict(zip(CHANNELS, (1.0, 0.5, 2.0, 0.35, 4.0), strict=True))
+
+
+class CohortPurpose(StrEnum):
+    train = 'train'
+    holdout = 'holdout'
+
+
+class RollRegister(Payload):
+    measure_id: int = Field(ge=1)
+    roll_code: RollCode
+
+
+class RollCorrection(Payload):
+    measure_id: int = Field(ge=1)
+    roll_code: RollCode
+
+
+class SampleWithdrawal(Payload):
+    measure_id: int = Field(ge=1)
+    reason: Note
+
+
+class PackagePublish(Payload):
+    purpose: CohortPurpose
+    measure_ids: Annotated[list[int], Field(min_length=1, max_length=5000)] = Field(...)
+
+    def unique_ids(self):
+        return list(dict.fromkeys(self.measure_ids))

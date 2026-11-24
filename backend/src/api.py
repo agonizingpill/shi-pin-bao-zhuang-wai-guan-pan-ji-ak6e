@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -10,15 +11,17 @@ from psycopg import errors
 from redis.exceptions import RedisError
 
 from .operations_evidence import router as operations_evidence
-from . import disposition, inspection
+from . import disposition, inspection, training
 from .auth import identity, issue_token, password_matches, require
 from .db import connect
 from .queue import WAKE_QUEUE, redis
 from .schemas import (VERIFICATION_LIMITS, GradeReview, Login, LotInput, MarkInput, MarkReview,
-                      MeasureInput, Role, Verification)
+                      MeasureInput, PackagePublish, RollCorrection, RollRegister, Role,
+                      SampleWithdrawal, Verification)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('packaging')
+JWT_SECRET = os.environ['JWT_SECRET']
 
 
 @asynccontextmanager
@@ -160,3 +163,71 @@ def verify(lot_id: int, data: Verification, actor=Depends(supervisor)):
 def close(lot_id: int, actor=Depends(supervisor)):
     with connect() as db:
         return disposition.close_lot(db, lot_id, actor)
+
+
+# --------------------------------------------------------------------------- #
+# 训练数据发包：膜卷登记/更正、样本撤销、训练包与留出包
+# --------------------------------------------------------------------------- #
+@app.get('/training/rolls')
+def training_rolls(_=Depends(identity)):
+    with connect() as db:
+        return training.roll_registry(db)
+
+
+@app.post('/training/rolls', status_code=201)
+def register_roll(data: RollRegister, actor=Depends(operator)):
+    with connect() as db:
+        return training.register_roll(db, data, actor)
+
+
+@app.post('/training/rolls/correct')
+def correct_roll(data: RollCorrection, actor=Depends(supervisor)):
+    with connect() as db:
+        return training.correct_roll(db, data, actor)
+
+
+@app.post('/training/samples/withdraw')
+def withdraw_sample(data: SampleWithdrawal, actor=Depends(supervisor)):
+    with connect() as db:
+        return training.withdraw_sample(db, data, actor)
+
+
+@app.get('/training/packages')
+def package_list(_=Depends(identity)):
+    with connect() as db:
+        return training.package_list(db)
+
+
+@app.post('/training/packages')
+def publish_package(data: PackagePublish, actor=Depends(supervisor)):
+    with connect() as db:
+        package, retried, skipped = training.publish_package(db, data, actor)
+    # 中断恢复重试命中原活跃包时返回 200，真正新建才是 201。
+    return JSONResponse({**package, 'retried': retried, 'skipped': skipped},
+                        status_code=200 if retried else 201)
+
+
+@app.get('/training/packages/{package_id}')
+def package_detail(package_id: int, _=Depends(identity)):
+    with connect() as db:
+        db.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        return training.package_detail(db, package_id)
+
+
+@app.post('/training/packages/{package_id}/link')
+def package_link(package_id: int, actor=Depends(identity)):
+    with connect() as db:
+        return training.download_link(db, package_id, actor, JWT_SECRET)
+
+
+@app.get('/training/packages/{package_id}/download')
+def package_download(package_id: int, token: str, _=Depends(identity)):
+    with connect() as db:
+        package = training.verify_download_token(db, token, JWT_SECRET)
+        if package['id'] != package_id:
+            raise HTTPException(403, '下载链接与训练包不匹配')
+        snapshot = training.build_snapshot(db, package)
+    return JSONResponse(snapshot, headers={
+        'Content-Disposition': f'attachment; filename="{package["code"]}.json"',
+        'Cache-Control': 'no-store',
+    })

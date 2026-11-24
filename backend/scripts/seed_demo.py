@@ -5,12 +5,20 @@ from src.db import connect
 from src.disposition import close_lot, sign_grade
 from src.inspection import add_mark, capture, create_lot, enqueue, latest_grade, latest_measure, review_mark
 from src.queue import grade_next
-from src.schemas import CHANNELS, GradeReview, LotInput, MarkInput, MarkReview, MeasureInput
+from src.schemas import CHANNELS, GradeReview, LotInput, MarkInput, MarkReview, MeasureInput, RollRegister
+from src.training import register_roll
 
 STAFF = [('operator', '林珂 · 线边操作'), ('supervisor', '周遥 · 质检主管'), ('viewer', '顾宁 · 排产查看')]
 STOCK = [('FILM-MT-220', '哑光阻隔膜 · 220 mm', 'B-04', 620),
          ('FILM-GL-180', '高光印刷膜 · 180 mm', 'A-12', 360),
          ('FILM-KR-250', '牛皮复合膜 · 250 mm', 'C-09', 110)]
+# 批次 -> 演示膜卷号；同批样本共用同卷，跨批刻意分卷以便演示训练/留出互斥。
+ROLL_BY_LOT = {
+    'PK-261121-01': 'RL-261118-01',
+    'PK-261121-03': 'RL-261119-03',
+    'PK-261121-04': 'RL-261120-04',
+    'PK-261121-05': 'RL-261121-05',
+}
 SAMPLES = [
     ('PK-261121-01', '海盐燕麦脆片 120 g', 'VS-01', 2400, 'FILM-MT-220', (0.32, 0.19, 0.83, 0.14, 1.9), 'closed'),
     ('PK-261121-02', '青柠米饼 90 g', 'VS-03', 1600, 'FILM-KR-250', None, 'new'),
@@ -38,6 +46,11 @@ def seed():
                 continue
             fields = dict(zip(CHANNELS, values, strict=True))
             capture(db, lot_id, MeasureInput(sample=f'{code}-S01', machine=machine, **fields), 'operator')
+            # 按批登记膜卷：blocked/review 批次同样登记，演示“有卷但未终判不入包”。
+            roll_code = ROLL_BY_LOT.get(code)
+            if roll_code:
+                register_roll(db, RollRegister(measure_id=latest_measure(db, lot_id)['id'],
+                                               roll_code=roll_code), 'operator')
             if target == 'blocked':
                 continue
             if target in ('review', 'override'):
@@ -59,7 +72,8 @@ def seed():
             else:
                 sign_grade(db, lot_id, GradeReview(grade='B', reason='实物热封带折入膜层，抽检区段需重新换膜。',
                                                  rework_units=160), 'supervisor')
-        tables = ('staff', 'material_stock', 'pack_lot', 'visual_measure', 'defect_mark', 'grade_decision', 'rework_issue', 'audit_event')
+        tables = ('staff', 'material_stock', 'pack_lot', 'visual_measure', 'defect_mark', 'grade_decision',
+                  'rework_issue', 'audit_event', 'film_roll_usage', 'training_package', 'training_package_item')
         print(json.dumps({table: db.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n'] for table in tables}, sort_keys=True))
 
 

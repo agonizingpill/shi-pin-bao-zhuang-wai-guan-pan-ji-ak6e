@@ -41,4 +41,20 @@ export const api = {
   detail: id => request(`/lots/${id}`),
   register: payload => request('/lots', payload, 'POST'),
   action: (id, endpoint, payload) => request(`/lots/${id}/${endpoint}`, payload, 'POST'),
+  rolls: () => request('/training/rolls'),
+  registerRoll: payload => request('/training/rolls', payload, 'POST'),
+  correctRoll: payload => request('/training/rolls/correct', payload, 'POST'),
+  withdrawSample: payload => request('/training/samples/withdraw', payload, 'POST'),
+  packages: () => request('/training/packages'),
+  publishPackage: payload => request('/training/packages', payload, 'POST'),
+  packageDetail: id => request(`/training/packages/${id}`),
+  packageLink: id => request(`/training/packages/${id}/link`, {}, 'POST'),
+  packageDownload: async (id, token) => {
+    const response = await fetch(`/api/training/packages/${id}/download?token=${encodeURIComponent(token)}`, {
+      headers: {Authorization: `Bearer ${session.get()?.access_token || ''}`},
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || `下载失败 (${response.status})`);
+    return result;
+  },
 };

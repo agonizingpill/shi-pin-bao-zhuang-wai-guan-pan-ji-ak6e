@@ -1,5 +1,26 @@
-import {DEFECTS, GRADES, ZONES} from '../labels.js';
+import {DEFECTS, GRADES, STATES, ZONES} from '../labels.js';
 import {auditList, channelInputs, channelName, empty, heading, lotLink, lotPicker, number, options, packLabel, readings, safe, sectionTitle, status, time} from '../ui.js';
+
+function rollPanel(data, account) {
+  const {rolls, roll_history, lot} = data;
+  if (!rolls?.length && !roll_history?.length) {
+    return `<section class="panel">${sectionTitle('膜卷登记', '训练交接')}
+      <p class="muted">本批样本尚未登记膜卷。已签核样本登记膜卷后才能进入训练/留出包，缺卷号不入包。</p></section>`;
+  }
+  const history = roll_history || [];
+  return `<section class="panel">${sectionTitle('膜卷登记', '同批膜卷只归同一边')}
+    <div class="roll-ledger">${(rolls || []).map(roll => `<div class="roll-row">
+        <b class="mono">${safe(roll.roll_code)}</b>
+        ${roll.side ? `<span class="chip ${safe(roll.side)}">${STATES[roll.side]}</span>` : '<span class="chip">未归边</span>'}
+        <small>${safe(roll.created_by)} · ${time(roll.created_at)}</small>
+      </div>`).join('')}</div>
+    ${history.length > (rolls?.length || 0) ? `<details class="model-proof"><summary>卷号更正轨迹 · ${history.length} 条</summary>
+      <ul class="samples">${history.map(row => `<li class="${row.is_current ? '' : 'superseded'}">
+        <b class="mono">${safe(row.roll_code)}</b> <small>${safe(row.sample)} · ${row.is_current ? '当前' : '已更正'} · ${safe(row.created_by)} ${time(row.created_at)}</small>
+      </li>`).join('')}</ul></details>` : ''}
+    <p class="muted">膜卷登记与更正请在「数据发包」页按样本操作；同批用过的卷只能归训练或留出同一边。</p>
+  </section>`;
+}
 
 function gradePanel(data, decision, account) {
   const {lot} = data;
@@ -28,7 +49,8 @@ export function workbenchPage(lots, data, account, zone) {
     <div class="lot-strip"><div><small>包装批次</small><b>${safe(lot.code)}</b></div><div><small>产品</small><b>${safe(lot.product)}</b></div><div><small>检测机台 / 件数</small><b>${safe(lot.machine)} / ${number(lot.units)}</b></div>${status(lot.state)}${rework ? `<a data-nav href="${lotLink('rework',lot.id)}">查看返工单 →</a>` : ''}${lot.state === 'approved' && account.role === 'supervisor' ? '<button class="primary" data-action="close">关闭批次</button>' : ''}</div>
     <div class="workbench-grid"><div class="stack"><section class="panel specimen">${sectionTitle('包装定位', current ? `测量 v${current.revision}` : '待采样')}${packLabel(lot,currentMarks,zone)}<div class="zones" aria-label="选择包装视图">${Object.entries(ZONES).map(([key,label])=> `<button type="button" data-zone="${key}" aria-pressed="${key === zone}">${label}</button>`).join('')}</div><p class="sample-ref mono">${safe(current?.sample || '未归档样本')}</p></section>
     <section class="panel">${sectionTitle('缺陷标记', `${currentMarks.length} 处`)}${currentMarks.length ? `<div class="marks-list">${currentMarks.map(mark=> `<article><div><b>${DEFECTS[mark.kind]}</b> <small>${ZONES[mark.zone]} · ${mark.x_pct}, ${mark.y_pct}</small>${status(mark.state)}</div><p>${safe(mark.note)}</p>${mark.review_note ? `<small>${safe(mark.reviewed_by)} · ${safe(mark.review_note)}</small>` : ''}${canMark && account.role === 'supervisor' && mark.state === 'open' ? `<form data-action="marks/${mark.id}/review" class="mark-review"><label>复核说明<input name="note" required minlength="2" maxlength="300"></label><button name="state" value="confirmed">确认</button><button name="state" value="dismissed">驳回</button></form>` : ''}</article>`).join('')}</div>` : empty('当前样本暂无标记','录入缺陷所在面、坐标和观察说明。')}
-    ${canMark && account.role === 'operator' ? '<button data-dialog="mark">＋ 标记缺陷</button>' : ''}</section></div>
+    ${canMark && account.role === 'operator' ? '<button data-dialog="mark">＋ 标记缺陷</button>' : ''}</section>
+    ${rollPanel(data, account)}</div>
     <div class="stack"><section class="panel readings-panel">${sectionTitle('视觉测量', '相机读数')}${current ? readings(current) : empty('尚无视觉测量','用绑定机台的检测文件录入五项通道。')}
       ${current && missing.length ? `<p class="notice warn">缺失 ${missing.map(channelName).join('、')}。补采后保留原版本。</p>` : ''}
       <div class="button-line">${canCapture ? `<button data-dialog="capture">${current ? '归档补采版本' : '归档视觉测量'}</button>` : ''}${account.role === 'operator' && lot.state === 'measured' ? '<button class="primary" data-action="grade">提交判级</button>' : ''}</div>

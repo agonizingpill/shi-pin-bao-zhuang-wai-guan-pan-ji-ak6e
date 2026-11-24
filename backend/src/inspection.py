@@ -132,7 +132,13 @@ def lot_detail(db, lot_id):
                               WHERE m.lot_id=%s ORDER BY d.id DESC''', (lot_id,)).fetchall()
     rework = db.execute('''SELECT r.*, s.description, s.bin, s.on_hand FROM rework_issue r
                            JOIN material_stock s ON s.sku=r.sku WHERE r.lot_id=%s''', (lot_id,)).fetchone()
+    rolls = db.execute('''SELECT r.* FROM film_roll_usage r
+                          WHERE r.lot_id=%s AND r.is_current=true ORDER BY r.id''', (lot_id,)).fetchall()
+    roll_history = db.execute('''SELECT r.*, m.sample FROM film_roll_usage r
+                                 JOIN visual_measure m ON m.id=r.measure_id
+                                 WHERE r.lot_id=%s ORDER BY r.id DESC''', (lot_id,)).fetchall()
     events = db.execute('SELECT * FROM audit_event WHERE lot_id=%s ORDER BY id DESC', (lot_id,)).fetchall()
     current = next((m for m in measures if m['purpose'] == 'grading'), None)
     return {'lot': lot, 'measures': measures, 'current': current, 'missing': missing_channels(current),
-            'marks': marks, 'decisions': decisions, 'rework': rework, 'events': events}
+            'marks': marks, 'decisions': decisions, 'rework': rework,
+            'rolls': rolls, 'roll_history': roll_history, 'events': events}

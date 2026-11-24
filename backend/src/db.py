@@ -3,6 +3,8 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
+MIGRATION_DIR = Path(__file__).resolve().parent.parent / 'migrations'
+
 
 def connect():
     return psycopg.connect('', row_factory=dict_row, connect_timeout=4)
@@ -11,4 +13,5 @@ def connect():
 def migrate():
     with connect() as db:
         db.execute('SELECT pg_advisory_xact_lock(106500)')
-        db.execute(Path('/app/migrations/001_workcell.sql').read_text())
+        for path in sorted(MIGRATION_DIR.glob('*.sql')):
+            db.execute(path.read_text())
